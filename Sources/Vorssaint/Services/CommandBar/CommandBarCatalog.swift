@@ -1466,6 +1466,9 @@ enum CommandBarCatalog {
     /// Return pressed before a script's debounced run has answered yet: runs
     /// at once instead of waiting, and leaves the bar open the way a search
     /// does, since there is nothing to copy until the row shows an answer.
+    /// A row reached by part of its name never shows one, so that run copies
+    /// its own answer and closes the bar once it lands, unless the person
+    /// has typed on in the meantime.
     private static func runScript(_ link: CommandBarLink) {
         let service = CommandBarService.shared
         let typed = service.queryWhenRun.trimmingCharacters(in: .whitespaces)
@@ -1481,7 +1484,19 @@ enum CommandBarCatalog {
             service.hide()
             return
         }
-        service.scriptRunner.runNow(link: link, argument: argument)
+        let savedLinks = CommandBarLinks.decode(
+            UserDefaults.standard.data(forKey: DefaultsKey.commandBarLinks))
+        guard !CommandBarLinks.queryShowsAnswer(for: link, argument: argument,
+                                                query: typed, in: savedLinks) else {
+            service.scriptRunner.runNow(link: link, argument: argument)
+            return
+        }
+        let queryWhenActivated = service.query
+        service.scriptRunner.runNow(link: link, argument: argument) { result in
+            guard service.query == queryWhenActivated else { return }
+            copyAnswer(result.text)
+            service.hide()
+        }
     }
 
     /// The row a saved script shows once it has answered: the same shape as

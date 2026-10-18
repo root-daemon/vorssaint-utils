@@ -1939,6 +1939,28 @@ enum CommandBarFeatureTests {
                "nothing is dropped for a script that did not match, or for a non-script link")
         suite.expect(CommandBarLinks.matchingScriptLink(in: scriptLinks, query: "a 100 usd eur") == nil,
                "a non-script link never matches, even with an argument")
+        // Return on a script row waits for its answer row only when the field
+        // will show one; a row reached by part of its name has to finish the
+        // run itself, or the output is dropped (issue #3094).
+        let clean = bareRunnable[0]
+        suite.expect(CommandBarLinks.queryShowsAnswer(for: clean, argument: "",
+                                                      query: "clean", in: bareRunnable)
+                && CommandBarLinks.queryShowsAnswer(for: clean, argument: "code",
+                                                    query: "clean code", in: bareRunnable),
+               "the bare name, or the name and an argument, grow the answer row for that run")
+        suite.expect(!CommandBarLinks.queryShowsAnswer(for: clean, argument: "",
+                                                       query: "cle", in: bareRunnable),
+               "a script row reached by part of its name never grows an answer row")
+        let nested = [
+            CommandBarLink(name: "copy", kind: .script, destination: "/tmp/copy"),
+            CommandBarLink(name: "copy path", kind: .script, destination: "/tmp/copy-path",
+                           runsWithoutArgument: true),
+        ]
+        suite.expect(!CommandBarLinks.queryShowsAnswer(for: nested[0], argument: "path",
+                                                       query: "copy path", in: nested)
+                && CommandBarLinks.queryShowsAnswer(for: nested[1], argument: "",
+                                                    query: "copy path", in: nested),
+               "only the script the answer row stands for counts as showing its answer")
 
         // A script marked to run directly answers to its own global shortcut
         // with nothing on screen; everything else falls back to opening the

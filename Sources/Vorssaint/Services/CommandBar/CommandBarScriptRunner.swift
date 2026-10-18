@@ -29,6 +29,8 @@ final class CommandBarScriptRunner {
     /// while the first one is still going, since nothing is cached yet.
     /// Touched only from the main thread, like the cache, so it needs no lock.
     private var inFlight: Set<String> = []
+    /// What to do with a run's answer once it lands, keyed like the cache.
+    private var answerHandlers: [String: (Result) -> Void] = [:]
     private var pendingWorkItem: DispatchWorkItem?
     private var generation = 0
 
@@ -40,6 +42,7 @@ final class CommandBarScriptRunner {
         cancelPending()
         cache.removeAll()
         inFlight.removeAll()
+        answerHandlers.removeAll()
     }
 
     /// A query that no longer names a script must not leave its delayed run
@@ -69,10 +72,15 @@ final class CommandBarScriptRunner {
     }
 
     /// Runs at once instead of waiting out the debounce, for the moment
-    /// Return is pressed before a result exists yet.
-    func runNow(link: CommandBarLink, argument: String) {
-        guard cachedResult(linkID: link.id, argument: argument) == nil,
-              !inFlight.contains(key(link.id, argument)) else { return }
+    /// Return is pressed before a result exists yet. `whenAnswered` gets the
+    /// result once it lands, also when that same run was already going; it
+    /// is dropped with the rest of the session when the bar closes.
+    func runNow(link: CommandBarLink, argument: String,
+                whenAnswered: ((Result) -> Void)? = nil) {
+        guard cachedResult(linkID: link.id, argument: argument) == nil else { return }
+        let cacheKey = key(link.id, argument)
+        if let whenAnswered { answerHandlers[cacheKey] = whenAnswered }
+        guard !inFlight.contains(cacheKey) else { return }
         cancelPending()
         execute(link: link, argument: argument)
     }
@@ -96,9 +104,12 @@ final class CommandBarScriptRunner {
                 guard let self else { return }
                 guard self.generation == runGeneration else { return }
                 self.inFlight.remove(cacheKey)
+                let whenAnswered = self.answerHandlers.removeValue(forKey: cacheKey)
                 guard let text = text ?? (status == 0 ? nil : self.failureText) else { return }
-                self.cache[cacheKey] = Result(text: text)
+                let result = Result(text: text)
+                self.cache[cacheKey] = result
                 self.onResult?()
+                whenAnswered?(result)
             }
         }
     }
