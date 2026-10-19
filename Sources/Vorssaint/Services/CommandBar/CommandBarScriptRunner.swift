@@ -8,9 +8,9 @@ import Foundation
 /// typed so a later keystroke never overwrites the screen with a stale
 /// answer meant for a different query.
 ///
-/// Not part of the pure-function test harness (`./build.sh --test`): the
-/// behavior here is a background process and a timer, not a calculation.
-/// Verified by hand against a real saved script link instead.
+/// The behavior here is a background process and a timer, not a
+/// calculation, so the command bar tests run a copy of it against small
+/// scripts they write instead of checking it as a pure function.
 final class CommandBarScriptRunner {
     struct Result: Equatable {
         let text: String
@@ -30,6 +30,8 @@ final class CommandBarScriptRunner {
     /// Touched only from the main thread, like the cache, so it needs no lock.
     private var inFlight: Set<String> = []
     /// What to do with a run's answer once it lands, keyed like the cache.
+    /// It holds one at most: the bar copies one answer and closes once, so
+    /// only the last Return on a script row decides what happens.
     private var answerHandlers: [String: (Result) -> Void] = [:]
     private var pendingWorkItem: DispatchWorkItem?
     private var generation = 0
@@ -73,13 +75,15 @@ final class CommandBarScriptRunner {
 
     /// Runs at once instead of waiting out the debounce, for the moment
     /// Return is pressed before a result exists yet. `whenAnswered` gets the
-    /// result once it lands, also when that same run was already going; it
-    /// is dropped with the rest of the session when the bar closes.
+    /// result once it lands, also when that same run was already going. It
+    /// takes the place of one given for an earlier run, and a Return that
+    /// waits for the answer row instead drops that one; it is dropped with
+    /// the rest of the session when the bar closes.
     func runNow(link: CommandBarLink, argument: String,
                 whenAnswered: ((Result) -> Void)? = nil) {
         guard cachedResult(linkID: link.id, argument: argument) == nil else { return }
         let cacheKey = key(link.id, argument)
-        if let whenAnswered { answerHandlers[cacheKey] = whenAnswered }
+        answerHandlers = whenAnswered.map { [cacheKey: $0] } ?? [:]
         guard !inFlight.contains(cacheKey) else { return }
         cancelPending()
         execute(link: link, argument: argument)

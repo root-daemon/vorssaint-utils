@@ -1466,9 +1466,10 @@ enum CommandBarCatalog {
     /// Return pressed before a script's debounced run has answered yet: runs
     /// at once instead of waiting, and leaves the bar open the way a search
     /// does, since there is nothing to copy until the row shows an answer.
-    /// A row reached by part of its name never shows one, so that run copies
-    /// its own answer and closes the bar once it lands, unless the person
-    /// has typed on in the meantime.
+    /// A row reached by part of its name never shows one, and neither does a
+    /// search inside a category, so that run copies its own answer and closes
+    /// the bar once it lands, unless the person has typed on or the bar has
+    /// moved on to something else in the meantime.
     private static func runScript(_ link: CommandBarLink) {
         let service = CommandBarService.shared
         let typed = service.queryWhenRun.trimmingCharacters(in: .whitespaces)
@@ -1486,14 +1487,21 @@ enum CommandBarCatalog {
         }
         let savedLinks = CommandBarLinks.decode(
             UserDefaults.standard.data(forKey: DefaultsKey.commandBarLinks))
-        guard !CommandBarLinks.queryShowsAnswer(for: link, argument: argument,
-                                                query: typed, in: savedLinks) else {
+        guard service.activeCategory != nil
+                || !CommandBarLinks.queryShowsAnswer(for: link, argument: argument,
+                                                     query: typed, in: savedLinks) else {
             service.scriptRunner.runNow(link: link, argument: argument)
             return
         }
         let queryWhenActivated = service.query
+        let categoryWhenActivated = service.activeCategory
         service.scriptRunner.runNow(link: link, argument: argument) { result in
-            guard service.query == queryWhenActivated else { return }
+            // Opening a category or a row's actions, or being asked for a
+            // name or a value, can leave the field as it was, so the field
+            // alone cannot tell that the bar has moved on.
+            guard case .search = service.mode,
+                  service.activeCategory == categoryWhenActivated,
+                  service.query == queryWhenActivated else { return }
             copyAnswer(result.text)
             service.hide()
         }
